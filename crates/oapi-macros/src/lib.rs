@@ -56,7 +56,12 @@ pub fn endpoint(attr: TokenStream, input: TokenStream) -> TokenStream {
     let attr = syn::parse_macro_input!(attr as EndpointAttr);
     let item = parse_macro_input!(input as Item);
     match endpoint::generate(attr, item) {
-        Ok(stream) => stream.into(),
+        Ok(stream) => {
+            // Temporary debug printing.
+            println!("{}", stream.to_token_stream());
+
+            stream.into()
+        }
         Err(e) => e.to_compile_error().into(),
     }
 }

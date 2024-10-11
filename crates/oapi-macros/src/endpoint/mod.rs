@@ -1,6 +1,6 @@
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, ToTokens};
-use syn::{Expr, Ident, ImplItem, Item, Pat, ReturnType, Signature, Type};
+use syn::{Expr, Generics, Ident, ImplItem, Item, Pat, ReturnType, Signature, Type};
 
 use crate::doc_comment::CommentAttributes;
 use crate::{omit_type_path_lifetimes, parse_input_type, Array, DiagResult, InputType, Operation};
@@ -14,6 +14,7 @@ fn metadata(
     attr: EndpointAttr,
     name: &Ident,
     mut modifiers: Vec<TokenStream>,
+    generics: &Generics,
 ) -> DiagResult<TokenStream> {
     let tfn = Ident::new(
         &format!("__macro_gen_oapi_endpoint_type_id_{}", name),
@@ -46,17 +47,19 @@ fn metadata(
             #(#modifiers)*
         }})
     };
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
     let stream = quote! {
-        fn #tfn() -> ::std::any::TypeId {
-            ::std::any::TypeId::of::<#name>()
+        fn #tfn #impl_generics() -> ::std::any::TypeId #where_clause {
+            ::std::any::TypeId::of::<#name #ty_generics>()
         }
-        fn #cfn() -> #oapi::oapi::Endpoint {
+        fn #cfn #impl_generics() -> #oapi::oapi::Endpoint #where_clause {
             let mut components = #oapi::oapi::Components::new();
             let status_codes: &[#salvo::http::StatusCode] = &#status_codes;
             let mut operation = #oapi::oapi::Operation::new();
             #modifiers
             if operation.operation_id.is_none() {
-                operation.operation_id = Some(#oapi::oapi::naming::assign_name::<#name>(#oapi::oapi::naming::NameRule::Auto));
+                operation.operation_id = Some(#oapi::oapi::naming::assign_name::<#name #ty_generics>(#oapi::oapi::naming::NameRule::Auto));
             }
             if !status_codes.is_empty() {
                 let responses = std::ops::DerefMut::deref_mut(&mut operation.responses);
@@ -117,7 +120,7 @@ pub(crate) fn generate(mut attr: EndpointAttr, input: Item) -> syn::Result<Token
             };
 
             let (hfn, modifiers) = handle_fn(&salvo, &oapi, sig)?;
-            let meta = metadata(&salvo, &oapi, attr, name, modifiers)?;
+            let meta = metadata(&salvo, &oapi, attr, name, modifiers, &sig.generics)?;
             Ok(quote! {
                 #sdef
                 #[#salvo::async_trait]
@@ -153,10 +156,16 @@ pub(crate) fn generate(mut attr: EndpointAttr, input: Item) -> syn::Result<Token
             };
             let (hfn, modifiers) = handle_fn(&salvo, &oapi, &hmtd.sig)?;
             let ty = &item_impl.self_ty;
-            let (impl_generics, _, where_clause) = &item_impl.generics.split_for_impl();
-            let name = Ident::new(&ty.to_token_stream().to_string(), Span::call_site());
-            let meta = metadata(&salvo, &oapi, attr, &name, modifiers)?;
-
+            let (impl_generics, ty_generics, where_clause) = &item_impl.generics.split_for_impl();
+            let name = ty
+                .to_token_stream()
+                .to_string()
+                .to_owned()
+                .trim_end_matches(&ty_generics.to_token_stream().to_string())
+                .trim()
+                .to_owned();
+            let name = Ident::new(&name, Span::call_site());
+            let meta = metadata(&salvo, &oapi, attr, &name, modifiers, &item_impl.generics)?;
             Ok(quote! {
                 #item_impl
                 #[#salvo::async_trait]
