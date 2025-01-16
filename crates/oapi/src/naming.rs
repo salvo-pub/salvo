@@ -152,7 +152,7 @@ impl Namer for FlexNamer {
             NameRule::Force(force_name) => {
                 let mut base = if self.short_mode {
                     let re = Regex::new(r"([^<>]*::)+").expect("Invalid regex");
-                    re.replace_all(type_name, "").to_string()
+                    re.replace_all(force_name, "").to_string()
                 } else {
                     format! {"{}{}", force_name, type_generic_part(type_name).replace("::", ".")}
                 };
